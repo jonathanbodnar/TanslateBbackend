@@ -19,6 +19,7 @@ export default async function register(app: FastifyInstance) {
       .insert({ user_id: userId, mode, story_text })
       .select('id')
       .single();
+    console.log('intake_sessions', data, error);
     if (error) return reply.code(500).send({ error: 'db_error' });
     return reply.send({ session_id: data.id, next: 'cards' });
   });

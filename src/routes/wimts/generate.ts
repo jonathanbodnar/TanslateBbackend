@@ -55,11 +55,11 @@ export default async function register(app: FastifyInstance) {
     try {
       // Only try to store if we have a user ID
       if (req.userId) {
-        // Create WIMTS session
+        // Create WIMTS session - session_id is now optional and doesn't need to exist in intake_sessions
         const { data: wimtsSession, error: sessionError } = await supabaseService
           .from('wimts_sessions')
           .insert({
-            session_id: session_id || null,
+            session_id: session_id || null, // Can be null for direct access users
             user_id: req.userId,
             intake_text,
             profile_snapshot: profile || null

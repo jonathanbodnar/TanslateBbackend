@@ -1,11 +1,34 @@
--- Supabase Schema (MVP)
+-- Supabase Schema (MVP) - Complete Implementation
 
 create extension if not exists "uuid-ossp";
+create extension if not exists "vector";
+create extension if not exists "pgcrypto";
 
 -- Users are in auth.users; create a profile table for denormalized public data
 create table if not exists public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text,
+  created_at timestamptz default now()
+);
+
+-- Questions table (replaces static data)
+create table if not exists public.questions (
+  id text primary key,
+  headline text not null,
+  left_label text not null,
+  right_label text not null,
+  helper_text text,
+  category text check (category in ('communication', 'relationship', 'personality', 'fear')),
+  order_index integer not null default 0,
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+-- User roles for admin functionality
+create table if not exists public.user_roles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  role text check (role in ('admin', 'editor', 'user')) not null default 'user',
   created_at timestamptz default now()
 );
 
@@ -22,7 +45,7 @@ create table if not exists public.intake_sessions (
 create table if not exists public.intake_answers (
   id uuid primary key default uuid_generate_v4(),
   session_id uuid references public.intake_sessions(id) on delete cascade,
-  question_id text not null,
+  question_id text references public.questions(id) not null,
   choice text check (choice in ('left','right','neither')) not null,
   intensity smallint check (intensity between 0 and 2) not null,
   created_at timestamptz default now()
@@ -100,16 +123,26 @@ create table if not exists public.shortlinks (
   created_at timestamptz default now()
 );
 
--- Indexes
+-- Indexes for performance
+create index if not exists idx_profiles_user on public.profiles(user_id);
+create index if not exists idx_questions_active on public.questions(is_active);
+create index if not exists idx_questions_order on public.questions(order_index);
+create index if not exists idx_user_roles_role on public.user_roles(role);
 create index if not exists idx_intake_sessions_user on public.intake_sessions(user_id);
+create index if not exists idx_intake_sessions_completed on public.intake_sessions(completed);
+create index if not exists idx_intake_answers_session on public.intake_answers(session_id);
+create index if not exists idx_intake_answers_question on public.intake_answers(question_id);
 create index if not exists idx_reflections_user on public.reflections(user_id);
+create index if not exists idx_reflections_created on public.reflections(created_at);
 create index if not exists idx_contacts_user on public.contacts(user_id);
+create index if not exists idx_contact_sliders_contact on public.contact_sliders(contact_id);
 create index if not exists idx_insights_user on public.insights(user_id);
+create index if not exists idx_insights_type on public.insights(type);
 create index if not exists idx_admin_configs_status on public.admin_configs(status);
+create index if not exists idx_admin_audit_log_actor on public.admin_audit_log(actor_user_id);
+create index if not exists idx_shortlinks_created_by on public.shortlinks(created_by);
 
--- pgvector for semantic similarity
-create extension if not exists "vector";
-create extension if not exists pgcrypto;
+-- pgvector extensions already declared at top
 
 -- Embeddings for reflections
 create table if not exists public.reflection_embeddings (
@@ -170,7 +203,7 @@ CREATE INDEX idx_analytics_events_session_id ON analytics_events(session_id);
 ALTER TABLE analytics_events ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Users can view own analytics events" ON analytics_events
-  FOR SELECT USING (auth.uid() = user_id);
+  FOR SELECT USING (auth.uid() = user_id OR user_id IS NULL);
 
 CREATE POLICY "Service can insert analytics events" ON analytics_events
   FOR INSERT WITH CHECK (true);
@@ -179,7 +212,7 @@ CREATE POLICY "Service can insert analytics events" ON analytics_events
 -- WIMTS sessions (links to intake sessions or standalone)
 CREATE TABLE IF NOT EXISTS public.wimts_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES public.intake_sessions(id) ON DELETE CASCADE,
+  session_id UUID, -- Optional reference to intake_sessions, no foreign key constraint
   user_id UUID REFERENCES auth.users(id),
   intake_text TEXT NOT NULL,
   profile_snapshot JSONB,
@@ -231,3 +264,116 @@ CREATE POLICY wimts_selections_rw ON public.wimts_selections
     SELECT 1 FROM public.wimts_sessions ws 
     WHERE ws.id = wimts_session_id AND ws.user_id = auth.uid()
   ));
+
+-- Additional RLS Policies for Complete Security
+
+-- Profiles: user can manage own profile
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY profiles_select_self ON public.profiles
+  FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY profiles_upsert_self ON public.profiles
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+CREATE POLICY profiles_update_self ON public.profiles
+  FOR UPDATE USING (user_id = auth.uid());
+
+-- Questions: public read, admin write
+ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY questions_public_read ON public.questions
+  FOR SELECT USING (is_active = true);
+CREATE POLICY questions_admin_write ON public.questions
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
+  ));
+
+-- User roles: users can read own role, admin can manage
+ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY user_roles_read_self ON public.user_roles
+  FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY user_roles_admin_manage ON public.user_roles
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role = 'admin'
+  ));
+
+-- Intake sessions/answers: owner only
+ALTER TABLE public.intake_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.intake_answers ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY intake_sessions_rw ON public.intake_sessions
+  FOR ALL USING (
+    user_id = auth.uid() OR user_id IS NULL
+  ) WITH CHECK (
+    user_id = auth.uid() OR user_id IS NULL
+  );
+
+CREATE POLICY intake_answers_rw ON public.intake_answers
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.intake_sessions s 
+    WHERE s.id = session_id AND (s.user_id = auth.uid() OR s.user_id IS NULL)
+  )) WITH CHECK (EXISTS(
+    SELECT 1 FROM public.intake_sessions s 
+    WHERE s.id = session_id AND (s.user_id = auth.uid() OR s.user_id IS NULL)
+  ));
+
+-- Reflections: owner only
+ALTER TABLE public.reflections ENABLE ROW LEVEL SECURITY;
+CREATE POLICY reflections_rw ON public.reflections
+  FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- Contacts & sliders: owner only
+ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contact_sliders ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY contacts_rw ON public.contacts
+  FOR ALL USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY contact_sliders_rw ON public.contact_sliders
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.contacts c 
+    WHERE c.id = contact_id AND c.user_id = auth.uid()
+  )) WITH CHECK (EXISTS(
+    SELECT 1 FROM public.contacts c 
+    WHERE c.id = contact_id AND c.user_id = auth.uid()
+  ));
+
+-- Insights: owner select/insert; no updates for MVP
+ALTER TABLE public.insights ENABLE ROW LEVEL SECURITY;
+CREATE POLICY insights_rw ON public.insights
+  FOR SELECT USING (user_id = auth.uid());
+CREATE POLICY insights_insert ON public.insights
+  FOR INSERT WITH CHECK (user_id = auth.uid());
+
+-- Admin configs: only admins
+ALTER TABLE public.admin_configs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY admin_configs_admin_only ON public.admin_configs
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
+  )) WITH CHECK (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
+  ));
+
+CREATE POLICY admin_audit_log_admin_only ON public.admin_audit_log
+  FOR ALL USING (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role = 'admin'
+  )) WITH CHECK (EXISTS(
+    SELECT 1 FROM public.user_roles r 
+    WHERE r.user_id = auth.uid() AND r.role = 'admin'
+  ));
+
+-- Shortlinks: public select (redirect), owner manage
+ALTER TABLE public.shortlinks ENABLE ROW LEVEL SECURITY;
+CREATE POLICY shortlinks_public_read ON public.shortlinks 
+  FOR SELECT USING (true);
+CREATE POLICY shortlinks_owner_write ON public.shortlinks
+  FOR ALL USING (created_by = auth.uid()) WITH CHECK (created_by = auth.uid());
+
+-- Lock down embeddings table (service role/RPC only)
+ALTER TABLE public.reflection_embeddings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "No direct access" ON public.reflection_embeddings
+  FOR ALL USING (false);
