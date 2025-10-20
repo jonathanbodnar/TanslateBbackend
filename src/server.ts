@@ -85,6 +85,7 @@ app.get('/debug/supabase', async (req, reply) => {
 
 app.addHook('preHandler', async (req, _res) => {
   const auth = req.headers.authorization;
+  
   if (!auth?.startsWith('Bearer ')) {
     return; // allow public endpoints
   }
