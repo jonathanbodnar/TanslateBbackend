@@ -12,7 +12,6 @@ export default async function register(app: FastifyInstance) {
     const parse = Body.safeParse(req.body);
     if (!parse.success) return reply.code(400).send({ error: 'invalid_body' });
     const { session_id } = parse.data;
-    await supabaseService.from('intake_sessions').update({ completed: true }).eq('id', session_id);
 
     // Load session context
     const { data: sessionRow } = await supabaseService
@@ -78,6 +77,15 @@ export default async function register(app: FastifyInstance) {
     if (!ai || !ai.profile) {
       ai = { profile: { lead: 'Horizon', next: 'Forge', mode: 'Inward-led', frictions_top: ['Subtext','Rulebook'], fears: { powerlessness: 0.2, incompetence: 0.2, betrayal: 0.2 }, summary_md: 'You primarily process through **feeling** and **sensing**.\nYou tend to approach relationships with emotional awareness and practical thinking.' } };
     }
+
+    // Store profile and mark session as completed
+    await supabaseService
+      .from('intake_sessions')
+      .update({ 
+        completed: true,
+        profile_snapshot: ai.profile
+      })
+      .eq('id', session_id);
 
     return reply.send(ai);
   });

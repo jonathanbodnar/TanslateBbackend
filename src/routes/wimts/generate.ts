@@ -6,7 +6,7 @@ import { rateLimit } from '../../middleware/rateLimit';
 import { supabaseService } from '../../lib/supabase';
 
 const Body = z.object({ 
-  session_id: z.string().uuid().optional(), // Make optional for direct access users
+  session_id: z.string().uuid().nullable().optional(), // Allow null or undefined for direct access
   intake_text: z.string().min(1), 
   profile: z.any() 
 });
