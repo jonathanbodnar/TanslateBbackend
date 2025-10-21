@@ -83,7 +83,7 @@ export class ProfileService {
         .eq('wimts_sessions.user_id', userId)
         .order('selected_at', { ascending: false })
         .limit(50)
-    ]);
+      ]);
 
     // Generate cognitive snapshot using AI with enriched data
     const cognitiveSnapshot = await this.generateCognitiveSnapshot(
@@ -359,6 +359,8 @@ export class ProfileService {
 
       const result = JSON.parse(response.choices[0]?.message?.content || '{}');
       
+      console.log(`[ProfileService] OpenAI generated ${(result.feed || []).length} insights`);
+      
       // Fetch or create insights in database with stable content-based matching
       const feedWithIds: any[] = [];
       
@@ -392,7 +394,7 @@ export class ProfileService {
               .eq('id', insightId);
           } else {
             // Create new insight
-            const { data: newInsight } = await supabaseService
+            const { data: newInsight, error: insertError } = await supabaseService
               .from('insights')
               .insert({
                 user_id: userId,
@@ -405,7 +407,19 @@ export class ProfileService {
               .select('id')
               .single();
             
-            insightId = newInsight!.id;
+            if (insertError || !newInsight) {
+              console.error('[ProfileService] Failed to insert insight:', {
+                error: insertError,
+                code: insertError?.code,
+                message: insertError?.message,
+                details: insertError?.details,
+                hint: insertError?.hint,
+                insight: { type: insight.type, title: insight.title }
+              });
+              throw new Error(`Insert failed: ${insertError?.message || 'No data returned'}`);
+            }
+            
+            insightId = newInsight.id;
           }
           
           feedWithIds.push({
@@ -413,11 +427,14 @@ export class ProfileService {
             insight_id: insightId,
             ts: new Date().toISOString()
           });
+          console.log(`[ProfileService] Successfully stored insight: ${insight.title}`);
         } catch (err) {
-          console.error('Failed to store/fetch insight:', err);
+          console.error('[ProfileService] Failed to store/fetch insight:', err);
           // Skip this insight if database operation fails
         }
       }
+      
+      console.log(`[ProfileService] Successfully stored ${feedWithIds.length} out of ${(result.feed || []).length} insights`);
       
       // Fetch liked status for all insights
       const insightIds = feedWithIds.map((i: any) => i.insight_id);

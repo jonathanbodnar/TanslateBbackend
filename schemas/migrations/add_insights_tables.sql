@@ -49,6 +49,12 @@ CREATE INDEX IF NOT EXISTS idx_insight_likes_insight_id ON public.insight_likes(
 ALTER TABLE public.insights ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.insight_likes ENABLE ROW LEVEL SECURITY;
 
+-- Drop existing policies if they exist
+DROP POLICY IF EXISTS "Users can read own insights" ON public.insights;
+DROP POLICY IF EXISTS "Service can insert insights" ON public.insights;
+DROP POLICY IF EXISTS "Service can update insights" ON public.insights;
+DROP POLICY IF EXISTS "Users can manage own likes" ON public.insight_likes;
+
 -- Users can read their own insights
 CREATE POLICY "Users can read own insights"
   ON public.insights FOR SELECT
