@@ -8,10 +8,14 @@ import wimtsGen from './routes/wimts/generate';
 import wimtsSelect from './routes/wimts/select';
 import translateGen from './routes/translate/generate';
 import profileGet from './routes/profile/get';
+import profileStats from './routes/profile/stats';
 import contactsCreate from './routes/contacts/create';
 import contactsList from './routes/contacts/list';
 import contactsGet from './routes/contacts/get';
+import contactsUpdate from './routes/contacts/update';
+import contactsDelete from './routes/contacts/delete';
 import contactsSliders from './routes/contacts/sliders';
+import contactsGetSliders from './routes/contacts/getSliders';
 import insightsLike from './routes/insights/like';
 import insightsWeekly from './routes/insights/weekly';
 import shareShortlink from './routes/share/shortlink';
@@ -29,6 +33,8 @@ import { requireAdmin } from './middleware/authz';
 import analyticsIngest from './routes/analytics/ingest';
 import reflectionsSimilar from './routes/reflections/similar';
 import claimSession from './routes/auth/claimSession';
+import { getQuiz } from './routes/relationships/getQuiz';
+import { submitQuiz } from './routes/relationships/submitQuiz';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { supabaseService } from './lib/supabase';
 
@@ -140,10 +146,14 @@ await wimtsGen(app);
 await wimtsSelect(app);
 await translateGen(app);
 await profileGet(app);
+await profileStats(app);
 await contactsCreate(app);
 await contactsList(app);
 await contactsGet(app);
+await contactsUpdate(app);
+await contactsDelete(app);
 await contactsSliders(app);
+await contactsGetSliders(app);
 await insightsLike(app);
 await insightsWeekly(app);
 await shareShortlink(app);
@@ -166,6 +176,10 @@ await adminModerationDecision(app);
 await reflectionsSimilar(app);
 await analyticsIngest(app);
 await claimSession(app);
+
+// Relationship Quiz routes
+app.get('/api/relationships/quiz/:contactId', getQuiz);
+app.post('/api/relationships/quiz/:contactId', submitQuiz);
 
 app.listen({ port: env.PORT, host: '0.0.0.0' }).catch((err) => {
   app.log.error(err);
