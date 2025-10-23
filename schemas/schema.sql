@@ -25,12 +25,7 @@ create table if not exists public.questions (
   updated_at timestamptz default now()
 );
 
--- User roles for admin functionality
-create table if not exists public.user_roles (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  role text check (role in ('admin', 'editor', 'user')) not null default 'user',
-  created_at timestamptz default now()
-);
+-- User roles removed - now using auth.users.raw_user_meta_data->>'role' for admin access
 
 -- Intake sessions
 create table if not exists public.intake_sessions (
@@ -96,23 +91,7 @@ create table if not exists public.insights (
   created_at timestamptz default now()
 );
 
--- Admin config versions
-create table if not exists public.admin_configs (
-  config_id text primary key,
-  status text check (status in ('draft','published')) not null,
-  payload jsonb not null,
-  author_user_id uuid references auth.users(id),
-  created_at timestamptz default now()
-);
-
-create table if not exists public.admin_audit_log (
-  id bigserial primary key,
-  actor_user_id uuid references auth.users(id),
-  action text,
-  config_id text,
-  details jsonb,
-  created_at timestamptz default now()
-);
+-- Admin config table removed - see migrations/add_admin_config.sql for new simplified structure
 
 -- Shortlinks (for share)
 create table if not exists public.shortlinks (
@@ -127,7 +106,7 @@ create table if not exists public.shortlinks (
 create index if not exists idx_profiles_user on public.profiles(user_id);
 create index if not exists idx_questions_active on public.questions(is_active);
 create index if not exists idx_questions_order on public.questions(order_index);
-create index if not exists idx_user_roles_role on public.user_roles(role);
+-- user_roles index removed (table no longer exists)
 create index if not exists idx_intake_sessions_user on public.intake_sessions(user_id);
 create index if not exists idx_intake_sessions_completed on public.intake_sessions(completed);
 create index if not exists idx_intake_answers_session on public.intake_answers(session_id);
@@ -138,8 +117,7 @@ create index if not exists idx_contacts_user on public.contacts(user_id);
 create index if not exists idx_contact_sliders_contact on public.contact_sliders(contact_id);
 create index if not exists idx_insights_user on public.insights(user_id);
 create index if not exists idx_insights_type on public.insights(type);
-create index if not exists idx_admin_configs_status on public.admin_configs(status);
-create index if not exists idx_admin_audit_log_actor on public.admin_audit_log(actor_user_id);
+-- admin_configs and admin_audit_log indexes removed (tables moved to migration)
 create index if not exists idx_shortlinks_created_by on public.shortlinks(created_by);
 
 -- pgvector extensions already declared at top
@@ -276,25 +254,17 @@ CREATE POLICY profiles_upsert_self ON public.profiles
 CREATE POLICY profiles_update_self ON public.profiles
   FOR UPDATE USING (user_id = auth.uid());
 
--- Questions: public read, admin write
+-- Questions: public read, admin write (checks auth.users metadata)
 ALTER TABLE public.questions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY questions_public_read ON public.questions
   FOR SELECT USING (is_active = true);
 CREATE POLICY questions_admin_write ON public.questions
   FOR ALL USING (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
+    SELECT 1 FROM auth.users 
+    WHERE auth.users.id = auth.uid() AND auth.users.raw_user_meta_data->>'role' = 'admin'
   ));
 
--- User roles: users can read own role, admin can manage
-ALTER TABLE public.user_roles ENABLE ROW LEVEL SECURITY;
-CREATE POLICY user_roles_read_self ON public.user_roles
-  FOR SELECT USING (user_id = auth.uid());
-CREATE POLICY user_roles_admin_manage ON public.user_roles
-  FOR ALL USING (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role = 'admin'
-  ));
+-- User roles table removed - using auth.users.raw_user_meta_data->>'role' instead
 
 -- Intake sessions/answers: owner only
 ALTER TABLE public.intake_sessions ENABLE ROW LEVEL SECURITY;
@@ -344,27 +314,7 @@ CREATE POLICY insights_rw ON public.insights
 CREATE POLICY insights_insert ON public.insights
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
--- Admin configs: only admins
-ALTER TABLE public.admin_configs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.admin_audit_log ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY admin_configs_admin_only ON public.admin_configs
-  FOR ALL USING (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
-  )) WITH CHECK (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role IN ('admin', 'editor')
-  ));
-
-CREATE POLICY admin_audit_log_admin_only ON public.admin_audit_log
-  FOR ALL USING (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role = 'admin'
-  )) WITH CHECK (EXISTS(
-    SELECT 1 FROM public.user_roles r 
-    WHERE r.user_id = auth.uid() AND r.role = 'admin'
-  ));
+-- Admin configs RLS removed - see migrations/add_admin_config.sql for new policies
 
 -- Shortlinks: public select (redirect), owner manage
 ALTER TABLE public.shortlinks ENABLE ROW LEVEL SECURITY;

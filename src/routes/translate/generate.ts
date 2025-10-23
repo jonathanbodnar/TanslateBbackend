@@ -76,7 +76,8 @@ export default async function register(app: FastifyInstance) {
     const styles = mode === '4' ? styles4 : styles8;
     
     // Build prompt with optional recipient context
-    let prompt = '';
+    let systemPrompt = '';
+    let userPrompt = '';
     
     if (contactSliders && contactName) {
       // Relationship-aware prompt
@@ -86,43 +87,81 @@ export default async function register(app: FastifyInstance) {
         return 'moderate';
       };
       
-      prompt = `You are a relationship-aware communication translator. You are adapting this message for ${contactName}${relationshipType ? ` (${relationshipType})` : ''}.
+      systemPrompt = `You are a relationship-aware communication translator. You translate messages into different communication styles while adapting to the recipient's preferences.
 
-Communication Preferences for ${contactName}:
-- Directness: ${contactSliders.directness}/100 (${getLabel(contactSliders.directness)}) - ${contactSliders.directness > 70 ? 'prefers direct, straightforward communication' : contactSliders.directness < 30 ? 'prefers cushioned, gentle communication' : 'balanced approach'}
-- Formality: ${contactSliders.formality}/100 (${getLabel(contactSliders.formality)}) - ${contactSliders.formality > 70 ? 'formal and professional' : contactSliders.formality < 30 ? 'casual and relaxed' : 'balanced'}
-- Warmth: ${contactSliders.warmth}/100 (${getLabel(contactSliders.warmth)}) - ${contactSliders.warmth > 70 ? 'appreciates warm, affectionate language' : 'neutral tone'}
-- Support: ${contactSliders.support}/100 - ${contactSliders.support > 70 ? 'prefers problem-solving approach' : 'prefers empathetic listening'}
-- Humor: ${contactSliders.humor}/100 - ${contactSliders.humor > 70 ? 'appreciates playful, light tone' : 'prefers serious tone'}
-- Emotional Expression: ${contactSliders.emotional_expression}/100 - ${contactSliders.emotional_expression > 70 ? 'comfortable with expressive language' : 'prefers reserved tone'}
-- Reassurance: ${contactSliders.reassurance_level}/100 - ${contactSliders.reassurance_level > 70 ? 'needs frequent reassurance' : 'minimal reassurance needed'}
-- Vulnerability: ${contactSliders.vulnerability}/100 - ${contactSliders.vulnerability > 70 ? 'open to vulnerability' : 'prefers privacy'}
-- Feedback Style: ${contactSliders.feedback_style}/100 - ${contactSliders.feedback_style > 70 ? 'direct feedback' : 'sandwich approach'}
+You MUST respond with ONLY valid JSON in this exact format:
+{
+  "translations": {
+    ${styles.map(s => `"${s}": "translated text here"`).join(',\n    ')}
+  }
+}
 
-IMPORTANT: Adapt the message to match ${contactName}'s communication style preferences above. Maintain the core meaning while adjusting tone, formality, and emotional expression.
+Each translation should:
+1. Be under 2 sentences
+2. Be clear and respectful
+3. Maintain the core meaning
+4. Adapt to the recipient's communication style`;
 
-Base message: ${base_text}
+      userPrompt = `Recipient: ${contactName}${relationshipType ? ` (${relationshipType})` : ''}
 
-Return ${styles.length} translations labeled exactly with: ${styles.join(', ')}. Each translation should:
-1. Respect ${contactName}'s communication preferences
-2. Stay under 2 sentences
-3. Be clear and respectful
-4. Adapt the ${styles.join('/')} framework to ${contactName}'s style`;
+Communication Preferences:
+- Directness: ${contactSliders.directness}/100 (${getLabel(contactSliders.directness)}) - ${contactSliders.directness > 70 ? 'prefers direct, straightforward' : contactSliders.directness < 30 ? 'prefers cushioned, gentle' : 'balanced'}
+- Formality: ${contactSliders.formality}/100 - ${contactSliders.formality > 70 ? 'formal/professional' : contactSliders.formality < 30 ? 'casual/relaxed' : 'balanced'}
+- Warmth: ${contactSliders.warmth}/100 - ${contactSliders.warmth > 70 ? 'warm, affectionate language' : 'neutral tone'}
+- Emotional Expression: ${contactSliders.emotional_expression}/100 - ${contactSliders.emotional_expression > 70 ? 'expressive language OK' : 'reserved tone'}
+- Reassurance: ${contactSliders.reassurance_level}/100 - ${contactSliders.reassurance_level > 70 ? 'needs reassurance' : 'minimal reassurance'}
+
+Base message to translate: "${base_text}"
+
+Return JSON with ${styles.length} translations (${styles.join(', ')}) adapted to ${contactName}'s preferences.`;
     } else {
       // Generic prompt (original behavior)
-      prompt = `Base: ${base_text}\nReturn ${styles.length} translations labeled exactly with: ${styles.join(', ')}. Keep each under 2 sentences, clear, respectful, recipient-adaptive.`;
+      systemPrompt = `You are a communication style translator. You translate messages into different communication styles.
+
+You MUST respond with ONLY valid JSON in this exact format:
+{
+  "translations": {
+    ${styles.map(s => `"${s}": "translated text here"`).join(',\n    ')}
+  }
+}
+
+Each translation should be under 2 sentences, clear, and respectful.`;
+
+      userPrompt = `Base message to translate: "${base_text}"
+
+Return JSON with ${styles.length} translations using these styles: ${styles.join(', ')}.`;
     }
+    
     const comp = await client.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.7,
+      response_format: { type: 'json_object' }
     });
-    const text = comp.choices[0]?.message?.content ?? '';
-    const lines = text.split('\n').filter(Boolean).slice(0, styles.length);
-    const translations: Record<string, string> = {};
-    styles.forEach((s, i) => {
-      translations[s] = (lines[i] || '').replace(/^[-*\s]*/,'').replace(new RegExp(`^${s}\\s*:\\s*`, 'i'), '');
-    });
+    
+    const text = comp.choices[0]?.message?.content ?? '{}';
+    let translations: Record<string, string> = {};
+    
+    try {
+      const parsed = JSON.parse(text);
+      translations = parsed.translations || {};
+      
+      // Ensure all expected styles are present
+      styles.forEach(style => {
+        if (!translations[style]) {
+          translations[style] = base_text; // Fallback to original text
+        }
+      });
+    } catch (error) {
+      console.error('Failed to parse AI response as JSON:', error);
+      // Fallback: return original text for all styles
+      styles.forEach(style => {
+        translations[style] = base_text;
+      });
+    }
     
     // Include recipient info in response
     return reply.send({ 

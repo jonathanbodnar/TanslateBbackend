@@ -23,13 +23,14 @@ import shareCard from './routes/share/card';
 import shareWall from './routes/share/wall';
 import pairInvite from './routes/pair/invite';
 import pairComplete from './routes/pair/complete';
-import adminConfigGet from './routes/admin/config.get';
-import adminConfigPut from './routes/admin/config.put';
-import adminConfigPublish from './routes/admin/config.publish';
-import adminVersionsList from './routes/admin/versions.list';
-import adminVersionsGet from './routes/admin/versions.get';
-import adminModerationDecision from './routes/admin/moderation.decision';
-import { requireAdmin } from './middleware/authz';
+// Admin panel routes (simplified - no versioning, no moderation)
+import adminGetConfig from './routes/admin/getConfig';
+import adminUpdateConfig from './routes/admin/updateConfig';
+import adminQuestionsList from './routes/admin/questions/list';
+import adminQuestionsCreate from './routes/admin/questions/create';
+import adminQuestionsUpdate from './routes/admin/questions/update';
+import adminQuestionsDelete from './routes/admin/questions/delete';
+import adminQuestionsToggle from './routes/admin/questions/toggle';
 import analyticsIngest from './routes/analytics/ingest';
 import reflectionsSimilar from './routes/reflections/similar';
 import claimSession from './routes/auth/claimSession';
@@ -161,18 +162,16 @@ await shareCard(app);
 await shareWall(app);
 await pairInvite(app);
 await pairComplete(app);
-await adminConfigGet(app);
-app.addHook('preValidation', async (req, reply) => {
-  if (req.routerPath?.startsWith('/api/admin')) {
-    const ok = await requireAdmin(req, reply);
-    if (!ok) return reply; // stop
-  }
-});
-await adminConfigPut(app);
-await adminConfigPublish(app);
-await adminVersionsList(app);
-await adminVersionsGet(app);
-await adminModerationDecision(app);
+
+// Admin routes (auth handled by requireAdmin middleware in each route)
+await adminGetConfig(app);
+await adminUpdateConfig(app);
+await adminQuestionsList(app);
+await adminQuestionsCreate(app);
+await adminQuestionsUpdate(app);
+await adminQuestionsDelete(app);
+await adminQuestionsToggle(app);
+
 await reflectionsSimilar(app);
 await analyticsIngest(app);
 await claimSession(app);
