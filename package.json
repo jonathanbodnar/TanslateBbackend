@@ -1,0 +1,27 @@
+{
+  "name": "translateb-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p .",
+    "start": "node dist/server.js",
+    "typecheck": "tsc -p . --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^9.0.1",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^17.2.3",
+    "fastify": "^4.27.2",
+    "jose": "^5.2.4",
+    "openai": "^4.52.3",
+    "pg": "^8.12.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsx": "^4.15.6",
+    "typescript": "^5.4.5"
+  }
+}
