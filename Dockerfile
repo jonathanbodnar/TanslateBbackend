@@ -1,25 +1,19 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including devDependencies for build)
+# Install ALL dependencies (tsx needed for runtime)
 RUN npm ci
 
 # Copy source code
 COPY . .
 
-# Build TypeScript
-RUN npm run build
-
-# Remove dev dependencies after build (optional, saves space)
-RUN npm prune --production
-
 # Expose port (Railway will assign PORT via env var)
 EXPOSE 8080
 
-# Start the application
+# Start with tsx (no build needed!)
 CMD ["npm", "start"]
 
